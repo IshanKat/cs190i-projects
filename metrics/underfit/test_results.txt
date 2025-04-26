@@ -1,0 +1,3 @@
+mAP: 0.1250
+Model checkpoint epoch: 61
+Batch size: 16

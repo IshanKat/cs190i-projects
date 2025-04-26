@@ -1,0 +1,2 @@
+Epoch	Time(s)	mAP	val mAP
+1	157.39	0.0000	0.1330
