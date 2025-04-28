@@ -12,7 +12,7 @@ from utils import load_checkpoint, non_max_suppression, cellboxes_to_boxes, VOC_
 
 # --- CONFIG ---
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-IMG_PATH = "example/dog.jpeg"
+IMG_PATH = "example/input.jpeg"
 MODEL_PATH = "checkpoints/latest.pth"
 SAVE_PATH = "example/output.png"
 
