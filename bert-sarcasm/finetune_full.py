@@ -1,10 +1,27 @@
 from config import *
-from transformers import BertTokenizer, BertForSequenceClassification, TrainingArguments, Trainer, EvalPrediction
+from transformers import BertTokenizer, BertForSequenceClassification, TrainingArguments, Trainer, EvalPrediction, TrainerCallback
 from datasets import load_dataset
 import numpy as np
 from sklearn.metrics import accuracy_score, f1_score
 from transformers import default_data_collator
 from progress_callback import TQDMProgressBar
+import matplotlib.pyplot as plt
+import time
+import os
+
+# Create output directory if it doesn't exist
+os.makedirs(OUTPUT_DIR_FULL, exist_ok=True)
+
+# Track training metrics
+training_losses = []
+training_times = []
+start_time = time.time()
+
+class MetricsCallback(TrainerCallback):
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if logs is not None and "loss" in logs:
+            training_losses.append(logs["loss"])
+            training_times.append(time.time() - start_time)
 
 print("Loading dataset...")
 dataset = load_dataset("tweet_eval", "irony")
@@ -43,7 +60,7 @@ args = TrainingArguments(
     num_train_epochs=NUM_EPOCHS,
     weight_decay=WEIGHT_DECAY,
     logging_dir="./logs",
-    logging_steps=LOGGING_STEPS,
+    logging_steps=LOGGING_STEPS
 )
 
 trainer = Trainer(
@@ -54,7 +71,34 @@ trainer = Trainer(
     tokenizer=tokenizer,
     data_collator=default_data_collator,
     compute_metrics=compute_metrics,
-    callbacks=[TQDMProgressBar()]
+    callbacks=[TQDMProgressBar(), MetricsCallback()]
 )
 
 trainer.train()
+
+# Plot training metrics
+fig, ax1 = plt.subplots(figsize=(10, 6))
+
+# Plot loss on left y-axis
+color = 'tab:blue'
+ax1.set_xlabel('Training Steps')
+ax1.set_ylabel('Loss', color=color)
+ax1.plot(range(len(training_losses)), training_losses, color=color, label='Loss')
+ax1.tick_params(axis='y', labelcolor=color)
+
+# Create second y-axis for training time
+ax2 = ax1.twinx()
+color = 'tab:red'
+ax2.set_ylabel('Training Time (seconds)', color=color)
+ax2.plot(range(len(training_times)), training_times, color=color, label='Time')
+ax2.tick_params(axis='y', labelcolor=color)
+
+# Add title and legend
+plt.title('Training Loss and Time')
+lines1, labels1 = ax1.get_legend_handles_labels()
+lines2, labels2 = ax2.get_legend_handles_labels()
+ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper right')
+
+plt.tight_layout()
+plt.savefig(os.path.join(OUTPUT_DIR_FULL, 'training_metrics.png'))
+plt.close()
