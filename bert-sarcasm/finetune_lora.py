@@ -10,8 +10,20 @@ import matplotlib.pyplot as plt
 import time
 import os
 
+OUTPUT_DIR = f"{OUTPUT_DIR_LORA}/rank{LORA_RANK}"
+
 # Create output directory if it doesn't exist
-os.makedirs(OUTPUT_DIR_LORA, exist_ok=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# Set up logging
+log_file = os.path.join(OUTPUT_DIR, 'training_log.txt')
+with open(log_file, 'w') as f:
+    f.write("=== Training Log ===\n\n")
+
+def log_message(message):
+    print(message)
+    with open(log_file, 'a') as f:
+        f.write(message + "\n")
 
 # Track training metrics
 training_losses = []
@@ -23,6 +35,7 @@ class MetricsCallback(TrainerCallback):
         if logs is not None and "loss" in logs:
             training_losses.append(logs["loss"])
             training_times.append(time.time() - start_time)
+            log_message(f"Step {state.global_step}: loss = {logs['loss']:.4f}")
 
 print("Loading dataset...")
 dataset = load_dataset("tweet_eval", "irony")
@@ -44,16 +57,32 @@ tokenized = tokenized.rename_column("label", "labels")
 tokenized.set_format("torch")
 
 model = BertForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=NUM_LABELS)
-lora_config = LoraConfig(task_type=TaskType.SEQ_CLS, r=LORA_RANK, lora_alpha=LORA_ALPHA,
-                         lora_dropout=LORA_DROPOUT, bias=LORA_BIAS)
-model = get_peft_model(model, lora_config)
 
 def compute_metrics(p: EvalPrediction):
     pred = np.argmax(p.predictions, axis=1)
     return {"accuracy": accuracy_score(p.label_ids, pred), "f1": f1_score(p.label_ids, pred)}
 
+# Evaluate base model before LoRA
+print("\nEvaluating base model before LoRA...")
+base_trainer = Trainer(
+    model=model,
+    args=TrainingArguments(output_dir=OUTPUT_DIR, per_device_eval_batch_size=EVAL_BATCH_SIZE),
+    eval_dataset=tokenized["validation"],
+    compute_metrics=compute_metrics
+)
+base_metrics = base_trainer.evaluate()
+log_message(f"Base model metrics: {base_metrics}")
+
+# Apply LoRA
+log_message("\nApplying LoRA adapters...")
+lora_config = LoraConfig(task_type=TaskType.SEQ_CLS, r=LORA_RANK, lora_alpha=LORA_ALPHA,
+                         lora_dropout=LORA_DROPOUT, bias=LORA_BIAS)
+model = get_peft_model(model, lora_config)
+log_message(f"LoRA configuration: rank={LORA_RANK}, alpha={LORA_ALPHA}, dropout={LORA_DROPOUT}, bias={LORA_BIAS}")
+
+
 args = TrainingArguments(
-    output_dir=OUTPUT_DIR_LORA,
+    output_dir=OUTPUT_DIR,
     eval_strategy="epoch",
     learning_rate=LEARNING_RATE,
     per_device_train_batch_size=TRAIN_BATCH_SIZE,
@@ -75,7 +104,12 @@ trainer = Trainer(
     callbacks=[TQDMProgressBar(), MetricsCallback()]
 )
 
+print("\nStarting training...")
 trainer.train()
+
+print("\nEvaluating after training...")
+final_metrics = trainer.evaluate()
+log_message(f"Final metrics: {final_metrics}")
 
 # Plot training metrics
 fig, ax1 = plt.subplots(figsize=(10, 6))
@@ -101,5 +135,5 @@ lines2, labels2 = ax2.get_legend_handles_labels()
 ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper right')
 
 plt.tight_layout()
-plt.savefig(os.path.join(OUTPUT_DIR_LORA, 'training_metrics.png'))
+plt.savefig(os.path.join(OUTPUT_DIR, 'training_metrics.png'))
 plt.close()

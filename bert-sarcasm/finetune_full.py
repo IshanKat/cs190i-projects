@@ -12,6 +12,16 @@ import os
 # Create output directory if it doesn't exist
 os.makedirs(OUTPUT_DIR_FULL, exist_ok=True)
 
+# Set up logging
+log_file = os.path.join(OUTPUT_DIR_FULL, 'training_log.txt')
+with open(log_file, 'w') as f:
+    f.write("=== Training Log ===\n\n")
+
+def log_message(message):
+    print(message)
+    with open(log_file, 'a') as f:
+        f.write(message + "\n")
+
 # Track training metrics
 training_losses = []
 training_times = []
@@ -22,8 +32,9 @@ class MetricsCallback(TrainerCallback):
         if logs is not None and "loss" in logs:
             training_losses.append(logs["loss"])
             training_times.append(time.time() - start_time)
+            log_message(f"Step {state.global_step}: loss = {logs['loss']:.4f}")
 
-print("Loading dataset...")
+log_message("Loading dataset...")
 dataset = load_dataset("tweet_eval", "irony")
 
 # === Tokenizer and preprocessing ===
@@ -50,6 +61,17 @@ def compute_metrics(p: EvalPrediction):
     pred = np.argmax(p.predictions, axis=1)
     return {"accuracy": accuracy_score(p.label_ids, pred), "f1": f1_score(p.label_ids, pred)}
 
+# Evaluate base model before training
+log_message("\nEvaluating base model before training...")
+base_trainer = Trainer(
+    model=model,
+    args=TrainingArguments(output_dir=OUTPUT_DIR_FULL, per_device_eval_batch_size=EVAL_BATCH_SIZE),
+    eval_dataset=tokenized["validation"],
+    compute_metrics=compute_metrics
+)
+base_metrics = base_trainer.evaluate()
+log_message(f"Base model metrics: {base_metrics}")
+
 # Training arguments
 args = TrainingArguments(
     output_dir=OUTPUT_DIR_FULL,
@@ -74,7 +96,12 @@ trainer = Trainer(
     callbacks=[TQDMProgressBar(), MetricsCallback()]
 )
 
+log_message("\nStarting training...")
 trainer.train()
+
+log_message("\nEvaluating after training...")
+final_metrics = trainer.evaluate()
+log_message(f"Final metrics: {final_metrics}")
 
 # Plot training metrics
 fig, ax1 = plt.subplots(figsize=(10, 6))
